@@ -1,6 +1,9 @@
 const { Connection, LAMPORTS_PER_SOL } = require("@solana/web3.js");
+const bs58 = require("bs58");
+const { Keypair } = require("@solana/web3.js");
 const { generateWallets, fundWallets, drainWallets } = require("./wallets");
 const { sweepToColdWallet } = require("./sweep");
+const { executeSwap } = require("./raydium");
 const { Order } = require("./models");
 
 const connection = new Connection(process.env.SOLANA_RPC_URL, "confirmed");
@@ -23,6 +26,9 @@ const PACKAGE_WALLETS = {
   "1w": 150,
 };
 
+// SOL amount per swap — small enough to not move price too much
+const SWAP_AMOUNT_SOL = 0.005;
+
 // Delay helper
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 
@@ -35,15 +41,21 @@ async function runVolumeEngine(order, notifyActive, notifyComplete) {
   try {
     const walletCount = PACKAGE_WALLETS[order.packageId] || 12;
     const duration = PACKAGE_DURATIONS[order.packageId] || 60 * 60 * 1000;
-    const solPerWallet = 0.01; // each wallet gets 0.01 SOL for gas
+
+    // Each wallet needs enough SOL for multiple swaps + gas
+    // 0.01 SOL per wallet covers ~2 swaps + fees
+    const solPerWallet = 0.01;
 
     // 1. Sweep payment to cold wallet
+    console.log(`💸 Sweeping payment to cold wallet...`);
     await sweepToColdWallet(order.price);
 
     // 2. Generate fresh bot wallets
+    console.log(`🔑 Generating ${walletCount} bot wallets...`);
     const wallets = generateWallets(walletCount);
 
     // 3. Fund bot wallets
+    console.log(`💰 Funding bot wallets...`);
     await fundWallets(wallets, solPerWallet);
 
     // 4. Mark order as active and notify user
@@ -58,17 +70,41 @@ async function runVolumeEngine(order, notifyActive, notifyComplete) {
     let totalTxs = 0;
     let walletIndex = 0;
 
+    console.log(`📈 Starting volume loop for ${order.tokenAddress}...`);
+
     while (Date.now() < endTime) {
       const wallet = wallets[walletIndex % wallets.length];
       walletIndex++;
 
       try {
-        // Simulate a buy transaction (transfer as placeholder)
-        // Replace this with real Raydium swap once pool address is known
-        console.log(
-          `📈 Simulating trade from wallet ${wallet.publicKey.slice(0, 8)}... for token ${order.tokenAddress}`,
+        // BUY — swap SOL for token
+        const buyTx = await executeSwap(
+          wallet.keypair,
+          order.tokenAddress,
+          SWAP_AMOUNT_SOL,
+          true, // isBuy
         );
-        totalTxs++;
+
+        if (buyTx) {
+          totalTxs++;
+          console.log(`📈 BUY tx ${totalTxs}: ${buyTx}`);
+
+          // Wait 5-20 seconds then sell
+          await sleep(rand(5000, 20000));
+
+          // SELL — swap token back to SOL
+          const sellTx = await executeSwap(
+            wallet.keypair,
+            order.tokenAddress,
+            SWAP_AMOUNT_SOL,
+            false, // isSell
+          );
+
+          if (sellTx) {
+            totalTxs++;
+            console.log(`📉 SELL tx ${totalTxs}: ${sellTx}`);
+          }
+        }
 
         // Update tx count in DB every 10 txs
         if (totalTxs % 10 === 0) {
@@ -81,12 +117,13 @@ async function runVolumeEngine(order, notifyActive, notifyComplete) {
         console.error("Trade error:", err.message);
       }
 
-      // Random delay between trades (3-15 seconds)
-      const delay = rand(3000, 15000);
+      // Random delay between trade cycles (10-30 seconds)
+      const delay = rand(10000, 30000);
       await sleep(delay);
     }
 
-    // 6. Drain remaining SOL from bot wallets
+    // 6. Drain remaining SOL from bot wallets back to receiving wallet
+    console.log(`🔄 Draining bot wallets...`);
     await drainWallets(wallets);
 
     // 7. Mark order complete
@@ -98,7 +135,8 @@ async function runVolumeEngine(order, notifyActive, notifyComplete) {
     console.log(
       `✅ Order ${order.orderId} complete. ${totalTxs} txs generated.`,
     );
-    if (notifyComplete) notifyComplete(order.telegramId, order);
+    if (notifyComplete)
+      notifyComplete(order.telegramId, { ...order, txsGenerated: totalTxs });
   } catch (err) {
     console.error(`❌ Engine error for ${order.orderId}:`, err.message);
     await Order.findOneAndUpdate(
