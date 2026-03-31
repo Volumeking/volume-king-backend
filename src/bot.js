@@ -1,7 +1,18 @@
 const TelegramBot = require("node-telegram-bot-api");
 const { Order, User } = require("./models");
 
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
+const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
+  polling: {
+    autoStart: true,
+    params: {
+      timeout: 10,
+    },
+  },
+});
+
+bot.on("polling_error", (err) => {
+  console.error("Polling error:", err.message);
+});
 
 const MINI_APP_URL =
   process.env.MINI_APP_URL || "https://your-mini-app.vercel.app";
