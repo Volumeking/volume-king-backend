@@ -2,18 +2,15 @@ const express = require("express");
 const crypto = require("crypto");
 const { User, Order } = require("./models");
 const { verifyPayment } = require("./solana");
+const { runVolumeEngine } = require("./engine");
+const { notifyOrderActive, notifyOrderComplete } = require("./bot");
 
 const router = express.Router();
 
 const PACKAGES = {
   "1h": { name: "1 Hour Boost", duration: "1 Hour", price: 1, wallets: 12 },
   "6h": { name: "6 Hour Boost", duration: "6 Hours", price: 3, wallets: 25 },
-  "12h": {
-    name: "12 Hour Boost",
-    duration: "12 Hours",
-    price: 5,
-    wallets: 40,
-  },
+  "12h": { name: "12 Hour Boost", duration: "12 Hours", price: 5, wallets: 40 },
   "1d": { name: "1 Day Boost", duration: "24 Hours", price: 8, wallets: 60 },
   "3d": { name: "3 Day Boost", duration: "3 Days", price: 18, wallets: 100 },
   "1w": { name: "1 Week Boost", duration: "7 Days", price: 35, wallets: 150 },
@@ -86,18 +83,22 @@ router.post("/orders/:orderId/confirm", async (req, res) => {
       return res.status(402).json({ error: "Payment invalid", reason });
     }
 
-    order.status = "active";
+    // Mark payment confirmed
     order.paymentSignature = signature;
     order.paymentConfirmedAt = new Date();
-    order.startedAt = new Date();
     await order.save();
 
+    // Update user stats
     await User.findOneAndUpdate(
       { telegramId: order.telegramId },
       { $inc: { totalOrders: 1, totalSpent: order.price } },
     );
 
+    // Respond to client immediately
     res.json({ success: true, orderId, status: "active" });
+
+    // Start volume engine in background (non-blocking)
+    runVolumeEngine(order, notifyOrderActive, notifyOrderComplete);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Confirmation failed" });
