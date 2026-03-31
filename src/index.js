@@ -3,12 +3,18 @@ const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const routes = require("./routes");
-require("./bot"); // Start Telegram bot
+const { bot } = require("./bot");
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+// ── Telegram webhook route ────────────────────────────────────────────────────
+app.post(`/bot${process.env.TELEGRAM_BOT_TOKEN}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use("/api", routes);

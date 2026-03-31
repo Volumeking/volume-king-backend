@@ -1,21 +1,22 @@
 const TelegramBot = require("node-telegram-bot-api");
 const { Order, User } = require("./models");
 
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
-  polling: {
-    autoStart: true,
-    params: {
-      timeout: 10,
-    },
-  },
-});
-
-bot.on("polling_error", (err) => {
-  console.error("Polling error:", err.message);
-});
-
 const MINI_APP_URL =
   process.env.MINI_APP_URL || "https://your-mini-app.vercel.app";
+const WEBHOOK_URL = `https://volume-king-backend-production.up.railway.app/bot${process.env.TELEGRAM_BOT_TOKEN}`;
+
+// Use webhook instead of polling to avoid 409 conflicts
+const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { webHook: true });
+
+// Set the webhook
+bot
+  .setWebHook(WEBHOOK_URL)
+  .then(() => {
+    console.log("✅ Telegram webhook set");
+  })
+  .catch((err) => {
+    console.error("❌ Failed to set webhook:", err.message);
+  });
 
 // ── /start ────────────────────────────────────────────────────────────────────
 bot.onText(/\/start/, async (msg) => {
