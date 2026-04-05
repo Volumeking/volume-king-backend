@@ -6,10 +6,8 @@ const MINI_APP_URL =
   process.env.MINI_APP_URL || "https://your-mini-app.vercel.app";
 const WEBHOOK_URL = `https://volume-king-backend-production.up.railway.app/bot${process.env.TELEGRAM_BOT_TOKEN}`;
 
-// Use webhook instead of polling to avoid 409 conflicts
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { webHook: true });
 
-// Set the webhook
 bot
   .setWebHook(WEBHOOK_URL)
   .then(() => {
@@ -34,8 +32,13 @@ bot.onText(/\/start/, async (msg) => {
 
   bot.sendMessage(
     id,
-    `👑 *Welcome to Volume King!*\n\nBoost your Solana token's volume with real on-chain transactions.\n\n` +
-      `💰 Packages from 1 SOL\n⚡ Starts within 60s of payment\n📊 Track orders live in the app`,
+    `👑 *Welcome to Volume King!*\n\n` +
+      `The #1 Solana volume booster.\n` +
+      `Real trades. Real volume. Real results.\n\n` +
+      `💰 Packages from 1 SOL\n` +
+      `⚡ Live within 60s of payment\n` +
+      `📊 Track orders in real time\n` +
+      `🪙 Create tokens on pump.fun`,
     {
       parse_mode: "Markdown",
       reply_markup: {
@@ -46,6 +49,10 @@ bot.onText(/\/start/, async (msg) => {
               text: "🪙 Create Token on pump.fun",
               callback_data: "create_token",
             },
+          ],
+          [
+            { text: "📋 My Orders", callback_data: "my_orders" },
+            { text: "💬 Support", url: "https://t.me/yoursupporthandle" },
           ],
         ],
       },
@@ -58,6 +65,25 @@ bot.onText(/\/create/, (msg) => {
   startCreateFlow(msg.from.id);
 });
 
+// ── /orders ───────────────────────────────────────────────────────────────────
+bot.onText(/\/orders/, async (msg) => {
+  await sendOrders(msg.from.id);
+});
+
+// ── /help ─────────────────────────────────────────────────────────────────────
+bot.onText(/\/help/, (msg) => {
+  bot.sendMessage(
+    msg.from.id,
+    `*Volume King Commands*\n\n` +
+      `/start — Open the mini app\n` +
+      `/create — Create a token on pump.fun\n` +
+      `/orders — View your recent orders\n` +
+      `/help — Show this message\n\n` +
+      `For support, contact @yoursupporthandle`,
+    { parse_mode: "Markdown" },
+  );
+});
+
 // ── Callback queries ──────────────────────────────────────────────────────────
 bot.on("callback_query", async (query) => {
   const chatId = query.from.id;
@@ -67,6 +93,8 @@ bot.on("callback_query", async (query) => {
 
   if (data === "create_token") {
     startCreateFlow(chatId);
+  } else if (data === "my_orders") {
+    await sendOrders(chatId);
   } else if (data === "boost_yes") {
     const session = createSessions[chatId];
     if (session?.tokenAddress) {
@@ -90,93 +118,10 @@ bot.on("callback_query", async (query) => {
       "No problem! Your token is live on pump.fun. Good luck! 🚀",
     );
     delete createSessions[chatId];
-  }
-});
-
-function startCreateFlow(chatId) {
-  createSessions[chatId] = { step: "name" };
-  bot.sendMessage(
-    chatId,
-    `🪙 *Create a Token on pump.fun*\n\n` +
-      `Fee: *1 SOL* (includes initial buy)\n\n` +
-      `Let's get started! What's your token name?`,
-    { parse_mode: "Markdown" },
-  );
-}
-
-// ── Handle create flow messages ───────────────────────────────────────────────
-bot.on("message", async (msg) => {
-  const chatId = msg.from.id;
-  const session = createSessions[chatId];
-  if (!session || msg.text?.startsWith("/")) return;
-
-  if (session.step === "name") {
-    session.name = msg.text.trim();
-    session.step = "symbol";
-    bot.sendMessage(
-      chatId,
-      "What's the token ticker/symbol? (e.g. PEPE, DOGE)",
-    );
-  } else if (session.step === "symbol") {
-    session.symbol = msg.text.trim().toUpperCase();
-    session.step = "description";
-    bot.sendMessage(chatId, "Give your token a description:");
-  } else if (session.step === "description") {
-    session.description = msg.text.trim();
-    session.step = "image";
-    bot.sendMessage(
-      chatId,
-      "Send your token image (as a photo) or type 'skip' to use no image:",
-    );
-  } else if (session.step === "image") {
-    if (msg.photo) {
-      const fileId = msg.photo[msg.photo.length - 1].file_id;
-      session.imageFileId = fileId;
-    }
-    session.step = "wallet";
-    bot.sendMessage(
-      chatId,
-      `Almost there! Send your *Solana wallet private key* so we can create the token on your behalf.\n\n` +
-        `⚠️ This is used once to deploy your token and is never stored.`,
-      { parse_mode: "Markdown" },
-    );
-  } else if (session.step === "wallet") {
-    session.privateKey = msg.text.trim();
-    session.step = "confirm";
-
-    // Delete the message containing the private key for security
-    bot.deleteMessage(chatId, msg.message_id).catch(() => {});
-
-    bot.sendMessage(
-      chatId,
-      `✅ *Ready to launch!*\n\n` +
-        `Token: *${session.name}* (${session.symbol})\n` +
-        `Description: ${session.description}\n` +
-        `Fee: *1 SOL*\n\n` +
-        `Make sure you have at least 1 SOL in your wallet. Confirm to launch:`,
-      {
-        parse_mode: "Markdown",
-        reply_markup: {
-          inline_keyboard: [
-            [{ callback_data: "confirm_create", text: "🚀 Launch Token" }],
-            [{ callback_data: "cancel_create", text: "❌ Cancel" }],
-          ],
-        },
-      },
-    );
-  }
-});
-
-// ── Confirm/cancel create ─────────────────────────────────────────────────────
-bot.on("callback_query", async (query) => {
-  const chatId = query.from.id;
-  const data = query.data;
-
-  if (data === "confirm_create") {
+  } else if (data === "confirm_create") {
     const session = createSessions[chatId];
     if (!session) return;
 
-    bot.answerCallbackQuery(query.id);
     bot.sendMessage(
       chatId,
       "🔄 Launching your token on pump.fun... this may take 30-60 seconds.",
@@ -219,23 +164,83 @@ bot.on("callback_query", async (query) => {
       delete createSessions[chatId];
     }
   } else if (data === "cancel_create") {
-    bot.answerCallbackQuery(query.id);
     bot.sendMessage(chatId, "Token creation cancelled.");
     delete createSessions[chatId];
   }
 });
 
-// ── /orders ───────────────────────────────────────────────────────────────────
-bot.onText(/\/orders/, async (msg) => {
-  const telegramId = String(msg.from.id);
-  const orders = await Order.find({ telegramId })
+// ── Handle create flow messages ───────────────────────────────────────────────
+bot.on("message", async (msg) => {
+  const chatId = msg.from.id;
+  const session = createSessions[chatId];
+  if (!session || msg.text?.startsWith("/")) return;
+
+  if (session.step === "name") {
+    session.name = msg.text.trim();
+    session.step = "symbol";
+    bot.sendMessage(
+      chatId,
+      "What's the token ticker/symbol? (e.g. PEPE, DOGE)",
+    );
+  } else if (session.step === "symbol") {
+    session.symbol = msg.text.trim().toUpperCase();
+    session.step = "description";
+    bot.sendMessage(chatId, "Give your token a description:");
+  } else if (session.step === "description") {
+    session.description = msg.text.trim();
+    session.step = "image";
+    bot.sendMessage(
+      chatId,
+      "Send your token image (as a photo) or type 'skip' to use no image:",
+    );
+  } else if (session.step === "image") {
+    if (msg.photo) {
+      const fileId = msg.photo[msg.photo.length - 1].file_id;
+      session.imageFileId = fileId;
+    }
+    session.step = "wallet";
+    bot.sendMessage(
+      chatId,
+      `Almost there! Send your *Solana wallet private key* so we can create the token on your behalf.\n\n` +
+        `⚠️ This is used once to deploy your token and is never stored.`,
+      { parse_mode: "Markdown" },
+    );
+  } else if (session.step === "wallet") {
+    session.privateKey = msg.text.trim();
+    session.step = "confirm";
+
+    bot.deleteMessage(chatId, msg.message_id).catch(() => {});
+
+    bot.sendMessage(
+      chatId,
+      `✅ *Ready to launch!*\n\n` +
+        `Token: *${session.name}* (${session.symbol})\n` +
+        `Description: ${session.description}\n` +
+        `Fee: *1 SOL*\n\n` +
+        `Make sure you have at least 1 SOL in your wallet. Confirm to launch:`,
+      {
+        parse_mode: "Markdown",
+        reply_markup: {
+          inline_keyboard: [
+            [{ callback_data: "confirm_create", text: "🚀 Launch Token" }],
+            [{ callback_data: "cancel_create", text: "❌ Cancel" }],
+          ],
+        },
+      },
+    );
+  }
+});
+
+// ── Helper: send orders ───────────────────────────────────────────────────────
+async function sendOrders(telegramId) {
+  const orders = await Order.find({ telegramId: String(telegramId) })
     .sort({ createdAt: -1 })
     .limit(5);
 
   if (!orders.length) {
     return bot.sendMessage(
       telegramId,
-      "You have no orders yet. Open the app to get started!",
+      "You have no orders yet. Open the app to get started! 🚀",
     );
   }
 
@@ -249,23 +254,14 @@ bot.onText(/\/orders/, async (msg) => {
     `📋 *Your Last 5 Orders*\n\n${lines.join("\n\n")}`,
     {
       parse_mode: "Markdown",
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "🚀 Open Volume King", web_app: { url: MINI_APP_URL } }],
+        ],
+      },
     },
   );
-});
-
-// ── /help ─────────────────────────────────────────────────────────────────────
-bot.onText(/\/help/, (msg) => {
-  bot.sendMessage(
-    msg.from.id,
-    `*Volume King Commands*\n\n` +
-      `/start — Open the mini app\n` +
-      `/create — Create a token on pump.fun\n` +
-      `/orders — View your recent orders\n` +
-      `/help — Show this message\n\n` +
-      `For support, contact @yoursupporthandle`,
-    { parse_mode: "Markdown" },
-  );
-});
+}
 
 // ── Notify user when order goes active ───────────────────────────────────────
 async function notifyOrderActive(telegramId, order) {
