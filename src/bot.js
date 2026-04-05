@@ -52,7 +52,7 @@ bot.onText(/\/start/, async (msg) => {
           ],
           [
             { text: "📋 My Orders", callback_data: "my_orders" },
-            { text: "💬 Support", url: "https://t.me/yoursupporthandle" },
+            { text: "💬 Support", url: "https://t.me/heffernan0723" },
           ],
         ],
       },
