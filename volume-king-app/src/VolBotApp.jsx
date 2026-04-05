@@ -70,7 +70,7 @@ const PACKAGES = [
 ];
 
 const BACKEND_URL = "https://volume-king-backend-production.up.railway.app";
-const PAYMENT_WALLET = "8eHR6xaJC7vNZPm9zLSRZ9z29qBSWw5SBFWmsW6iE7pq";
+const PAYMENT_WALLET = "9jhpCHBtTMtftg7PgrKGsRXywm3cLX1GySewvtb5SPMW";
 
 function AnimatedNumber({ value, decimals = 0 }) {
   const [display, setDisplay] = useState(0);
